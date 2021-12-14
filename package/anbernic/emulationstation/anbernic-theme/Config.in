@@ -1,0 +1,4 @@
+config BR2_PACKAGE_ANBERNIC_THEME
+	bool "EmulationStation theme Anbernic"
+	help
+	  https://github.com/SummerSunGenius/anbernic-theme.git

@@ -1,0 +1,3 @@
+config BR2_PACKAGE_ANBERNIC_DRMINFO
+       depends on BR2_PACKAGE_LIBDRM
+       bool "anbernic-drminfo"

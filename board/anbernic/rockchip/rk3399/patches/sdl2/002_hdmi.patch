@@ -1,0 +1,259 @@
+diff --git a/src/video/kmsdrm/SDL_kmsdrmopengles.c b/src/video/kmsdrm/SDL_kmsdrmopengles.c
+index b63cb5c..0ab31d3 100644
+--- a/src/video/kmsdrm/SDL_kmsdrmopengles.c
++++ b/src/video/kmsdrm/SDL_kmsdrmopengles.c
+@@ -105,7 +105,34 @@ KMSDRM_GLES_SwapWindow(_THIS, SDL_Window * window) {
+     /* } else {
+         SDL_LogDebug(SDL_LOG_CATEGORY_VIDEO, "Locked GBM surface %p", (void *)windata->next_bo); */
+     }
++#ifdef __HDMI__
++    if(hdmi_status==1)
++    {
++        fb_info = KMSDRM_FBFromBO(_this, windata->next_bo);
++        if (!fb_info) {
++            return 0;
++        }
++    }
++    else
++    {
++        if (src_info.fd) {
++            close(src_info.fd);
++        }
++        src_info.fd = KMSDRM_gbm_bo_get_fd(windata->next_bo);
++        dst_info.fd = viddata->rga_buffer_prime_fds[viddata->rga_buffer_index];
++        if (c_RkRgaBlit(&src_info, &dst_info, NULL) < 0) {
++           SDL_LogError(SDL_LOG_CATEGORY_VIDEO,
++                            "Failed to rga blit\n");
++        }
+ 
++        rga_buffer = viddata->rga_buffers[viddata->rga_buffer_index];
++        fb_info = KMSDRM_FBFromBO(_this, rga_buffer);
++        if (!fb_info) {
++            return 0;
++        }
++        viddata->rga_buffer_index = (viddata->rga_buffer_index + 1) % RGA_BUFFERS_MAX;        
++    }
++#else
+     if (src_info.fd) {
+         close(src_info.fd);
+     }
+@@ -122,6 +149,7 @@ KMSDRM_GLES_SwapWindow(_THIS, SDL_Window * window) {
+         return 0;
+     }
+     viddata->rga_buffer_index = (viddata->rga_buffer_index + 1) % RGA_BUFFERS_MAX;
++#endif
+     if (!windata->curr_bo) {
+         /* On the first swap, immediately present the new front buffer. Before
+            drmModePageFlip can be used the CRTC has to be configured to use
+diff --git a/src/video/kmsdrm/SDL_kmsdrmvideo.c b/src/video/kmsdrm/SDL_kmsdrmvideo.c
+index e6f0453..51bc029 100755
+--- a/src/video/kmsdrm/SDL_kmsdrmvideo.c
++++ b/src/video/kmsdrm/SDL_kmsdrmvideo.c
+@@ -51,6 +51,68 @@
+ #define KMSDRM_DRI_PATH "/dev/dri/"
+ rga_info_t src_info = {0};
+ rga_info_t dst_info = {0};
++#ifdef __HDMI__
++int hdmi_status=0;
++static const char *sys_class_hdmi_path = "/sys/class/drm/card0-HDMI-A-1";
++static int
++open_hdmi_file(const char *base, const char *node, const char *key)
++{
++    const size_t pathlen = strlen(base) + strlen(node) + strlen(key) + 3;
++    char *path = (char *) alloca(pathlen);
++    if (path == NULL) {
++        return -1;  /* oh well. */
++    }
++
++    snprintf(path, pathlen, "%s/%s/%s", base, node, key);
++    return open(path, O_RDONLY);
++}
++static SDL_bool
++read_hdmi_file(const char *base, const char *node, const char *key,
++                char *buf, size_t buflen)
++{
++    ssize_t br = 0;
++    const int fd = open_hdmi_file(base, node, key);
++    if (fd == -1) {
++        return SDL_FALSE;
++    }
++    br = read(fd, buf, buflen-1);
++    close(fd);
++    if (br < 0) {
++        return SDL_FALSE;
++    }
++    buf[br] = '\0';             /* null-terminate the string. */
++    return SDL_TRUE;
++}
++int
++check_hdmi_connect()
++{
++    const char *base = sys_class_hdmi_path;
++    struct dirent *dent;
++    DIR *dirp;
++
++    dirp = opendir(base);
++    if (!dirp) {
++        return SDL_FALSE;
++    }
++    while ((dent = readdir(dirp)) != NULL) {
++        const char *name = dent->d_name;
++        char str[64];
++        /* some drivers don't offer this, so if it's not explicitly reported assume it's present. */
++        if (read_hdmi_file(base, name, "status", str, sizeof (str)) && (SDL_strcmp(str, "connected\n") == 0)) {
++            hdmi_status=1;
++            closedir(dirp);
++            return SDL_TRUE;
++        }
++        else
++        {
++            hdmi_status=0;          
++        }
++    }
++    closedir(dirp);
++    return SDL_FALSE;
++}
++
++#endif
+ static int
+ check_modestting(int devindex)
+ {
+@@ -190,7 +252,7 @@ KMSDRM_CreateDevice(int devindex)
+     viddata->drm_fd = -1;
+ 
+     device->driverdata = viddata;
+-
++    check_hdmi_connect();
+     /* Setup all functions which we can handle */
+     device->VideoInit = KMSDRM_VideoInit;
+     device->VideoQuit = KMSDRM_VideoQuit;
+@@ -436,7 +498,17 @@ KMSDRM_CreateSurfaces(_THIS, SDL_Window * window)
+ #if SDL_VIDEO_OPENGL_EGL
+     EGLContext egl_context;
+ #endif
+-
++#ifdef __HDMI__
++    if(hdmi_status==1)
++    {
++        width=dispdata->mode.hdisplay;
++        height=dispdata->mode.vdisplay;
++    }
++    else
++    {
++     
++    }
++#endif
+     if (!KMSDRM_gbm_device_is_format_supported(viddata->gbm, surface_fmt, surface_flags)) {
+         SDL_LogWarn(SDL_LOG_CATEGORY_VIDEO, "GBM surface format not supported. Trying anyway.");
+     }
+@@ -640,9 +712,21 @@ KMSDRM_VideoInit(_THIS)
+     }
+ 
+     /* Setup the single display that's available */
+-
++#ifdef __HDMI__
++    if(hdmi_status==1)
++    {
++        display.desktop_mode.w = dispdata->mode.hdisplay;
++        display.desktop_mode.h = dispdata->mode.vdisplay;
++    }
++    else
++    {
++        display.desktop_mode.w = dispdata->mode.vdisplay;
++        display.desktop_mode.h = dispdata->mode.hdisplay;     
++    }
++#else
+     display.desktop_mode.w = dispdata->mode.vdisplay;
+     display.desktop_mode.h = dispdata->mode.hdisplay;
++#endif
+     display.desktop_mode.refresh_rate = dispdata->mode.vrefresh;
+ #if 1
+     display.desktop_mode.format = SDL_PIXELFORMAT_ARGB8888;
+@@ -772,8 +856,21 @@ KMSDRM_GetDisplayModes(_THIS, SDL_VideoDisplay * display)
+           modedata->mode_index = i;
+         }
+ 
++#ifdef __HDMI__
++    if(hdmi_status==1)
++    {
++        mode.w = conn->modes[i].hdisplay;
++        mode.h = conn->modes[i].vdisplay;
++    }
++    else
++    {
++        mode.w = conn->modes[i].vdisplay;
++        mode.h = conn->modes[i].hdisplay;
++    }
++#else
+         mode.w = conn->modes[i].vdisplay;
+         mode.h = conn->modes[i].hdisplay;
++#endif
+         mode.refresh_rate = conn->modes[i].vrefresh;
+         mode.format = SDL_PIXELFORMAT_ARGB8888;
+         mode.driverdata = modedata;
+@@ -878,8 +975,19 @@ KMSDRM_CreateWindow(_THIS, SDL_Window * window)
+     /* Focus on the newly created window */
+     SDL_SetMouseFocus(window);
+     SDL_SetKeyboardFocus(window);
++#ifdef __HDMI__
++    if(hdmi_status==1)
++    {
++    }
++    else
++    {
++        data = (SDL_DisplayData *) SDL_GetDisplayForWindow(window)->driverdata;
++        KMSDRM_InitRotateBuffer(_this, data->mode.hdisplay, data->mode.vdisplay);   
++    }
++#else
+     data = (SDL_DisplayData *) SDL_GetDisplayForWindow(window)->driverdata;
+     KMSDRM_InitRotateBuffer(_this, data->mode.hdisplay, data->mode.vdisplay);
++#endif
+ 
+     return 0;
+ 
+@@ -918,6 +1026,21 @@ KMSDRM_DestroyWindow(_THIS, SDL_Window * window)
+     window->driverdata = NULL;
+ 
+     SDL_free(windata);
++#ifdef __HDMI__
++    if(hdmi_status==1)
++    {
++    }
++    else
++    {
++        for (int i = 0; i < RGA_BUFFERS_MAX; ++i) {
++            close(viddata->rga_buffer_prime_fds[i]);
++        }
++        if (src_info.fd) {
++            close(src_info.fd);
++        }
++        c_RkRgaDeInit();
++    }
++#else
+     for (int i = 0; i < RGA_BUFFERS_MAX; ++i) {
+         close(viddata->rga_buffer_prime_fds[i]);
+     }
+@@ -925,6 +1048,7 @@ KMSDRM_DestroyWindow(_THIS, SDL_Window * window)
+         close(src_info.fd);
+     }
+     c_RkRgaDeInit();
++#endif
+ }
+ 
+ int
+diff --git a/src/video/kmsdrm/SDL_kmsdrmvideo.h b/src/video/kmsdrm/SDL_kmsdrmvideo.h
+index f9ce2eb..ab19ee5 100644
+--- a/src/video/kmsdrm/SDL_kmsdrmvideo.h
++++ b/src/video/kmsdrm/SDL_kmsdrmvideo.h
+@@ -38,6 +38,11 @@
+ #include <assert.h>
+ 
+ #define RGA_BUFFERS_MAX (3)
++#define __HDMI__
++#ifdef __HDMI__
++extern int hdmi_status;
++extern int check_hdmi_connect();
++#endif
+ 
+ typedef struct SDL_VideoData
+ {

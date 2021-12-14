@@ -1,0 +1,8 @@
+[Desktop Entry]
+Version=1.0
+Icon=/usr/share/icons/anbernic/dolphin.png
+Exec=/usr/bin/anbernic-config-dolphin
+Terminal=false
+Type=Application
+Categories=Game;anbernic.linux;
+Name=dolphin-emu-config

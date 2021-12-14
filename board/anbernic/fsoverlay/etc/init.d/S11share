@@ -1,0 +1,283 @@
+#!/bin/bash
+
+if [[ "$1" == "stop" ]]
+then
+    # umount all network configs
+    # don't just remount the one of the config in case the config changed
+    umount -a -t nfs
+    umount -a -t cifs
+    exit 0
+fi
+
+if [[ "$1" != "start" ]]
+then
+    exit 0
+fi
+
+###
+# SHARECONFFILE
+# can contain :
+# INTERNAL     => /dev/mmcblk0p2
+# RAM          => tmpfs
+# ANYEXTERNAL  => any device found not starting by /dev/mmcblk0p (use it when you've several usb keys, but plug only one at a time)
+# DEV [FSUUID] => a device having the FSUID uuid
+###
+
+SHARECONFFILE="/boot/anbernic-boot.conf"
+INTERNALDEVICE=$(anbernic-part "share_internal")
+INTERNALDEVICETYPE=$(blkid "${INTERNALDEVICE}" | sed -e s+'^.* TYPE="\([^"]*\)\".*'+'\1'+)
+
+SHAREDEVICE=$(cat "${SHARECONFFILE}" | grep -E '^[ ]*sharedevice=' | head -n1 | cut -d'=' -f2)
+[[ "$?" -ne "0" || "$SHAREDEVICE" == "" ]] && SHAREDEVICE=INTERNAL
+
+getMaxTryConfig() {
+    SHARECONFFILE=${1}
+
+    X=$(grep -E '^[ \t]*sharewait[ \t]*=' "${SHARECONFFILE}" | sed -e s+'^[ \t]*sharewait[ \t]*='+''+)
+    if echo "${X}" | grep -qE '^[0-9][0-9]*$'
+    then
+        echo "${X}"
+        return
+    fi
+    echo 7 # default value
+}
+
+MAXTRY=$(getMaxTryConfig "${SHARECONFFILE}")
+NTRY=0
+
+mountDeviceOrFallback() {
+    DEVICE=$1
+    TDEVICE=$2
+    ANBERNICFULLFS="/var/anbernicfs"
+    FALLBACK=1
+
+    if [[ -n "${DEVICE}" ]]
+    then
+        if mkdir -p "${ANBERNICFULLFS}"
+        then
+            if anbernic-mount "${TDEVICE}" 1 "${DEVICE}" "${ANBERNICFULLFS}"
+            then
+                if [[ -d "${ANBERNICFULLFS}/recalbox" && ! -d "${ANBERNICFULLFS}/anbernic" ]] # legacy renaming (rename only if anbernic doesn't exist and recalbox does)
+                then
+                    mv "${ANBERNICFULLFS}/recalbox" "${ANBERNICFULLFS}/anbernic"
+                fi
+                if mkdir -p "${ANBERNICFULLFS}/anbernic"
+                then
+                    if mount "${ANBERNICFULLFS}/anbernic" "/userdata" -o "noatime"
+                    then
+                        FALLBACK=0
+                    fi
+                fi
+            fi
+        fi
+    fi
+
+    if [[ "${FALLBACK}" == "1" ]]
+    then
+        if ! anbernic-mount "${INTERNALDEVICETYPE}" 1 "${INTERNALDEVICE}" /userdata
+        then
+            mount -t tmpfs -o size=256M tmpfs /userdata
+        fi
+    fi
+}
+
+fixanbernicconfname() {
+    [[ -e "/userdata/system/recalbox.conf" ]] && mv /userdata/system/recalbox.conf /userdata/system/anbernic.conf
+}
+
+mountNetwork() {
+    # /boot/anbernic-boot.conf examples :
+    # sharedevice=NETWORK
+    #
+    # Basic commands : sharenetwork_<nfs|smb><[0-9]>=<SHARE|ROMS|SAVES|BIOS>@<host>:<remote directory>:<mount options>
+    #
+    # sharenetwork_nfs1=SHARE@192.168.0.1:/Documents/anbernic
+    # or
+    # sharenetwork_nfs1=ROMS@192.168.0.1:/Documents/anbernic/roms
+    # sharenetwork_nfs2=SAVES@192.168.0.1:/Documents/anbernic/saves
+    # or
+    # sharenetwork_smb1=SHARE@192.168.0.1:Documents/anbernic:guest
+    #
+    # Advanced commands : sharenetwork_cmd<[0-9]>=<command to run>
+    # sharenetwork_cmd1=mount -o port=2049,nolock,proto=tcp 192.168.0.1:/Documents/anbernic /userdata
+    # or
+    # sharenetwork_cmd1=mount -o port=2049,nolock,proto=tcp 192.168.0.1:/Documents/anbernic/roms /userdata/roms
+    # sharenetwork_cmd2=mount -o port=2049,nolock,proto=tcp 192.168.0.1:/Documents/anbernic/saves /userdata/saves
+    # or
+    # sharenetwork_cmd1=mount.cifs //192.168.0.1/anbernic /userdata -o guest
+
+    # execute all commands in /boot/anbernic-boot.conf which are like : sharenetwork_cmd1=my command
+    if ! grep -E '^[ ]*sharenetwork_[a-z]*[0-9][ ]*=' "${SHARECONFFILE}" |
+        sed -e s+'^[ ]*sharenetwork_\([a-z]*\)[0-9][ ]*='+'\1 '+ |
+        while read -r CTYPE CMD
+        do
+            XTRY=5  # X tries and give up
+            XWAIT=4 # N seconds between each try
+
+            while [[ "${XTRY}" -gt 0 ]]
+            do
+                (( XTRY-- ))
+                CMD_EXEC=echo
+                if [[ "${CTYPE}" == "cmd" ]]
+                then
+                    CMD_EXEC="${CMD}"
+                else
+                    CMD_TARGET=$(echo "${CMD}" | sed -e s+'^\([^@]*\)@.*$'+'\1'+)
+                    CMD_HOST=$(echo "${CMD}" | sed -e s+'^[^@]*@\([^:]*\):.*$'+'\1'+)
+                    CMD_RDIR=$(echo "${CMD}" | sed -e s+'^[^@]*@[^:]*:\([^:]*\).*$'+'\1'+)
+                    CMD_OPT=$(echo "${CMD}" | sed -e s+'^[^@]*@[^:]*:[^:]*'+''+ -e s+'^:'++)
+
+                    # MAP to the anbernic directory
+                    CMD_TDIR="/userdata"
+                    case "${CMD_TARGET}" in
+                        "SHARE")
+                            CMD_TDIR="/userdata"
+                        ;;
+                        "ROMS")
+                            CMD_TDIR="/userdata/roms"
+                        ;;
+                        "SAVES")
+                            CMD_TDIR="/userdata/saves"
+                        ;;
+                        "BIOS")
+                            CMD_TDIR="/userdata/bios"
+                        ;;
+                    esac
+
+                    case "${CTYPE}" in
+                        "nfs")
+                            CMD_ADDOPT=
+                            [ -n "${CMD_OPT}" ] && CMD_ADDOPT=",${CMD_OPT}"
+                            CMD_EXEC="mount -o port=2049,nolock,proto=tcp${CMD_ADDOPT} ${CMD_HOST}:${CMD_RDIR} ${CMD_TDIR}"
+                        ;;
+                        "smb")
+                            CMD_ADDOPT=
+                            [ -n "${CMD_OPT}" ] && CMD_ADDOPT="-o ${CMD_OPT}"
+                            CMD_EXEC="mount.cifs //${CMD_HOST}/${CMD_RDIR} ${CMD_TDIR} ${CMD_ADDOPT}"
+                        ;;
+                    esac
+                fi
+
+                echo "${CMD_EXEC}"
+                if ${CMD_EXEC}
+                then
+                    echo "success"
+                    XTRY=0
+                else
+                    echo "fail (${XTRY} : ${CMD_EXEC})"
+                    # give up
+                    if [ ${XTRY} -eq 0 ]
+                    then
+                        echo "giving up"
+                        return 1
+                    fi
+                    sleep ${XWAIT} # wait n seconds between each try
+                fi
+            done
+        done
+    then
+        return 1
+    fi
+    return 0
+}
+
+RMODE="$SHAREDEVICE"
+
+if echo "${RMODE}" | grep -qE '^DEV '
+then
+    MODE="DEV"
+    UUID=$(echo "${RMODE}" | sed -e s+'^DEV '++)
+else
+    MODE=${RMODE}
+fi
+
+case "${MODE}" in
+    "DEV")
+        LDEVICE=$(blkid | grep " UUID=\"${UUID}\"")
+        while [[ -z "${LDEVICE}" && "${NTRY}" -lt "${MAXTRY}" ]] # wait the device that can take some seconds after udev started
+        do
+            (( NTRY++ ))
+            sleep 1
+           LDEVICE=$(blkid | grep " UUID=\"${UUID}\"")
+        done
+        DEVICE=$(echo "${LDEVICE}" | sed -e s+'^\([^:]*\):.*$'+'\1'+)
+        TDEVICE=$(echo "${LDEVICE}" | sed -e s+'^.* TYPE="\([^"]*\)"$'+'\1'+)
+        mountDeviceOrFallback "${DEVICE}" "${TDEVICE}"
+        fixanbernicconfname
+    ;;
+    "ANYEXTERNAL")
+        PARTPREFIX=$(anbernic-part prefix "${INTERNALDEVICE}")
+        LDEVICE=$(blkid | grep -vE "^${PARTPREFIX}" | head -1)
+        while [ -z "${LDEVICE}" ] && [ "${NTRY}" -lt "${MAXTRY}" ] # wait the device that can take some seconds after udev started
+        do
+            let NTRY++
+            sleep 1
+            LDEVICE=$(blkid | grep -vE "^${PARTPREFIX}" | head -1)
+        done
+        DEVICE=$(echo "${LDEVICE}" | sed -e s+'^\([^:]*\):.*$'+'\1'+)
+        TDEVICE=$(echo "${LDEVICE}" | sed -e s+'^.* TYPE="\([^"]*\)"$'+'\1'+)
+        mountDeviceOrFallback "${DEVICE}" "${TDEVICE}"
+        fixanbernicconfname
+    ;;
+    "RAM")
+        mount -t tmpfs -o size=256M tmpfs /userdata
+    ;;
+    "NETWORK")
+        # first, INTERNAL mount, then, network mount over the NETWORK mounts
+        # to allow to mount over /userdata, but only over /userdata/roms if wanted
+        # mounting network mounts over usb key have not really sense
+        if anbernic-mount "${INTERNALDEVICETYPE}" 1 "${INTERNALDEVICE}" /userdata
+        then
+            # we try to fix old residues from former timer here
+            # if share mount for network fails then we fallback to internal data
+            fixanbernicconfname
+        else
+            # fallback
+            mount -t tmpfs -o size=256M tmpfs /userdata
+        fi
+
+        # Network mounts
+        # no fallback required, mounted on the share
+        mountNetwork > /tmp/mountNetwork.log 2> /tmp/mountNetwork.err # could be usefull to debug
+    ;;
+    "INTERNAL"|*)
+        if ! anbernic-mount "${INTERNALDEVICETYPE}" 1 "${INTERNALDEVICE}" /userdata
+        then
+            # fallback
+            # the internal partition is no more required in fact
+           mount -t tmpfs -o size=256M tmpfs /userdata
+        fi
+        fixanbernicconfname
+    ;;
+esac
+
+# fs compression
+compressenabled="`anbernic-settings -command load -key system.fscompression.enabled`"
+if [[ "$compressenabled" == "1" ]]
+then
+    if grep -qE "^/dev/[^ ]* /userdata btrfs.*$" /proc/mounts
+    then
+        mount -o remount,compress /userdata || exit 1
+    fi
+fi
+
+
+# share upgrade, just unzip share.zip from upgrade, no need to reboot
+if [[ -e "/userdata/system/upgrade/share.zip" ]]
+then
+    (cd /userdata && unzip -o /userdata/system/upgrade/share.zip) > /userdata/system/upgrade/upgrade.share.out.log 2> /userdata/system/upgrade/upgrade.share.err.log
+    # always remove to not apply indefinitly
+    rm -f /userdata/system/upgrade/share.zip
+fi
+
+# now, let mount delayed usbmount devices
+ls /var/run/usbmount.delay |
+    while read -r RULE
+    do
+        RTYPE=$(echo "${RULE}" | sed -e s+'^[0-9]*\.'++)
+        # source the udev context and apply the usbmount
+        (. "/var/run/usbmount.delay/${RULE}"
+        /usr/share/usbmount/usbmount "${RTYPE}"
+        rm "/var/run/usbmount.delay/${RULE}")
+    done
+touch /var/run/anbernic.share.mounted # reenable standard usbmount

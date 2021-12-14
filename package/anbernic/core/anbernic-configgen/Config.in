@@ -1,0 +1,10 @@
+config BR2_PACKAGE_ANBERNIC_CONFIGGEN
+        bool "anbernic configgen"
+	select BR2_PACKAGE_PYTHON
+	select BR2_PACKAGE_PYTHON_PYYAML
+	select BR2_PACKAGE_PYTHON_PILLOW
+        help
+          The configuration utility for anbernic
+	  The purpose of the lib is to automatically configure emulators, using the environment variables available in Anbernic.
+          The main program is emulatorlauncher.py, taking 13 parameters, that are the system and 4 controllers configurations.
+

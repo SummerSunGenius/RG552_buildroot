@@ -1,0 +1,160 @@
+diff --git a/src/video/kmsdrm/SDL_kmsdrmopengles.c b/src/video/kmsdrm/SDL_kmsdrmopengles.c
+index 0ab31d3..ffc32d5 100644
+--- a/src/video/kmsdrm/SDL_kmsdrmopengles.c
++++ b/src/video/kmsdrm/SDL_kmsdrmopengles.c
+@@ -105,34 +105,7 @@ KMSDRM_GLES_SwapWindow(_THIS, SDL_Window * window) {
+     /* } else {
+         SDL_LogDebug(SDL_LOG_CATEGORY_VIDEO, "Locked GBM surface %p", (void *)windata->next_bo); */
+     }
+-#ifdef __HDMI__
+-    if(hdmi_status==1)
+-    {
+-        fb_info = KMSDRM_FBFromBO(_this, windata->next_bo);
+-        if (!fb_info) {
+-            return 0;
+-        }
+-    }
+-    else
+-    {
+-        if (src_info.fd) {
+-            close(src_info.fd);
+-        }
+-        src_info.fd = KMSDRM_gbm_bo_get_fd(windata->next_bo);
+-        dst_info.fd = viddata->rga_buffer_prime_fds[viddata->rga_buffer_index];
+-        if (c_RkRgaBlit(&src_info, &dst_info, NULL) < 0) {
+-           SDL_LogError(SDL_LOG_CATEGORY_VIDEO,
+-                            "Failed to rga blit\n");
+-        }
+ 
+-        rga_buffer = viddata->rga_buffers[viddata->rga_buffer_index];
+-        fb_info = KMSDRM_FBFromBO(_this, rga_buffer);
+-        if (!fb_info) {
+-            return 0;
+-        }
+-        viddata->rga_buffer_index = (viddata->rga_buffer_index + 1) % RGA_BUFFERS_MAX;        
+-    }
+-#else
+     if (src_info.fd) {
+         close(src_info.fd);
+     }
+@@ -149,7 +122,7 @@ KMSDRM_GLES_SwapWindow(_THIS, SDL_Window * window) {
+         return 0;
+     }
+     viddata->rga_buffer_index = (viddata->rga_buffer_index + 1) % RGA_BUFFERS_MAX;
+-#endif
++
+     if (!windata->curr_bo) {
+         /* On the first swap, immediately present the new front buffer. Before
+            drmModePageFlip can be used the CRTC has to be configured to use
+diff --git a/src/video/kmsdrm/SDL_kmsdrmvideo.c b/src/video/kmsdrm/SDL_kmsdrmvideo.c
+index 51bc029..cdaca46 100755
+--- a/src/video/kmsdrm/SDL_kmsdrmvideo.c
++++ b/src/video/kmsdrm/SDL_kmsdrmvideo.c
+@@ -252,7 +252,9 @@ KMSDRM_CreateDevice(int devindex)
+     viddata->drm_fd = -1;
+ 
+     device->driverdata = viddata;
++    #ifdef __HDMI__
+     check_hdmi_connect();
++    #endif
+     /* Setup all functions which we can handle */
+     device->VideoInit = KMSDRM_VideoInit;
+     device->VideoQuit = KMSDRM_VideoQuit;
+@@ -343,19 +345,36 @@ KMSDRM_InitRotateBuffer(_THIS, int frameWidth, int frameHeight)
+         viddata->rga_buffer_prime_fds[i] = KMSDRM_gbm_bo_get_fd(viddata->rga_buffers[i]);
+     }
+     viddata->rga_buffer_index = 0;
++    if(hdmi_status==1)
++    {
++        // setup rotation
++        src_info.fd = -1;
++        src_info.mmuFlag = 1;
++        src_info.rotation = 0;
++
++        // swap width and height here because our source buffer is 480x320
++        rga_set_rect(&src_info.rect, 0, 0, frameHeight, frameWidth, frameHeight, frameWidth, RK_FORMAT_BGRA_8888);
++
++        dst_info.fd = -1;
++        dst_info.mmuFlag = 1;
+ 
+-    // setup rotation
+-    src_info.fd = -1;
+-    src_info.mmuFlag = 1;
+-    src_info.rotation = HAL_TRANSFORM_ROT_270;
++        rga_set_rect(&dst_info.rect, 0, 0, frameHeight, frameWidth, frameHeight, frameWidth, RK_FORMAT_BGRA_8888);
++    }
++    else
++    {
++        // setup rotation
++        src_info.fd = -1;
++        src_info.mmuFlag = 1;
++        src_info.rotation = HAL_TRANSFORM_ROT_270;
+ 
+-    // swap width and height here because our source buffer is 480x320
+-    rga_set_rect(&src_info.rect, 0, 0, frameHeight, frameWidth, frameHeight, frameWidth, RK_FORMAT_BGRA_8888);
++        // swap width and height here because our source buffer is 480x320
++        rga_set_rect(&src_info.rect, 0, 0, frameHeight, frameWidth, frameHeight, frameWidth, RK_FORMAT_BGRA_8888);
+ 
+-    dst_info.fd = -1;
+-    dst_info.mmuFlag = 1;
++        dst_info.fd = -1;
++        dst_info.mmuFlag = 1;
+ 
+-    rga_set_rect(&dst_info.rect, 0, 0, frameWidth, frameHeight, frameWidth, frameHeight, RK_FORMAT_BGRA_8888);
++        rga_set_rect(&dst_info.rect, 0, 0, frameWidth, frameHeight, frameWidth, frameHeight, RK_FORMAT_BGRA_8888);     
++    }
+ }
+ 
+ KMSDRM_FBInfo *
+@@ -975,19 +994,9 @@ KMSDRM_CreateWindow(_THIS, SDL_Window * window)
+     /* Focus on the newly created window */
+     SDL_SetMouseFocus(window);
+     SDL_SetKeyboardFocus(window);
+-#ifdef __HDMI__
+-    if(hdmi_status==1)
+-    {
+-    }
+-    else
+-    {
+-        data = (SDL_DisplayData *) SDL_GetDisplayForWindow(window)->driverdata;
+-        KMSDRM_InitRotateBuffer(_this, data->mode.hdisplay, data->mode.vdisplay);   
+-    }
+-#else
++
+     data = (SDL_DisplayData *) SDL_GetDisplayForWindow(window)->driverdata;
+     KMSDRM_InitRotateBuffer(_this, data->mode.hdisplay, data->mode.vdisplay);
+-#endif
+ 
+     return 0;
+ 
+@@ -1026,21 +1035,7 @@ KMSDRM_DestroyWindow(_THIS, SDL_Window * window)
+     window->driverdata = NULL;
+ 
+     SDL_free(windata);
+-#ifdef __HDMI__
+-    if(hdmi_status==1)
+-    {
+-    }
+-    else
+-    {
+-        for (int i = 0; i < RGA_BUFFERS_MAX; ++i) {
+-            close(viddata->rga_buffer_prime_fds[i]);
+-        }
+-        if (src_info.fd) {
+-            close(src_info.fd);
+-        }
+-        c_RkRgaDeInit();
+-    }
+-#else
++
+     for (int i = 0; i < RGA_BUFFERS_MAX; ++i) {
+         close(viddata->rga_buffer_prime_fds[i]);
+     }
+@@ -1048,7 +1043,6 @@ KMSDRM_DestroyWindow(_THIS, SDL_Window * window)
+         close(src_info.fd);
+     }
+     c_RkRgaDeInit();
+-#endif
+ }
+ 
+ int

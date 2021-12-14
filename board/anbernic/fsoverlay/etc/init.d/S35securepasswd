@@ -1,0 +1,34 @@
+#!/bin/sh
+
+if test "$1" != "start"
+then
+  exit 0
+fi
+
+systemsetting="anbernic-settings"
+
+# /etc/shadow is dynamically generated from the password found in /boot/anbernic-boot.conf
+# the password is visible only in the es interface
+# or to people having already a ssh password via the command : anbernic-config setRootPassword xyz
+MASTERPASSWD=$(anbernic-config getRootPassword)
+if test -z "${MASTERPASSWD}"
+then
+    # generate a new one
+    # hum, in case of error, what to do ? nothing.
+    anbernic-config setRootPassword
+    MASTERPASSWD=$(anbernic-config getRootPassword)
+fi
+
+# secure ssh
+enabled="`$systemsetting  -command load -key system.security.enabled`"
+if [ "$enabled" != "1" ];then
+    MASTERPASSWD="linux"
+fi
+  
+# write the /etc/shadow file
+SHADOWPASSWD=$(openssl passwd -1 "${MASTERPASSWD}")
+echo "root:${SHADOWPASSWD}:::::::" > /run/anbernic.shadow
+
+# secure samba
+mkdir -p "/var/lib/samba/private"
+(echo "${MASTERPASSWD}"; echo "${MASTERPASSWD}") | smbpasswd -a root

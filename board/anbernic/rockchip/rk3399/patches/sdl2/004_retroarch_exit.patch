@@ -1,0 +1,266 @@
+diff --git a/src/video/kmsdrm/SDL_kmsdrmopengles.c b/src/video/kmsdrm/SDL_kmsdrmopengles.c
+index ffc32d5..5d50295 100644
+--- a/src/video/kmsdrm/SDL_kmsdrmopengles.c
++++ b/src/video/kmsdrm/SDL_kmsdrmopengles.c
+@@ -105,24 +105,40 @@ KMSDRM_GLES_SwapWindow(_THIS, SDL_Window * window) {
+     /* } else {
+         SDL_LogDebug(SDL_LOG_CATEGORY_VIDEO, "Locked GBM surface %p", (void *)windata->next_bo); */
+     }
+-
+-    if (src_info.fd) {
+-        close(src_info.fd);
+-    }
+-    src_info.fd = KMSDRM_gbm_bo_get_fd(windata->next_bo);
+-    dst_info.fd = viddata->rga_buffer_prime_fds[viddata->rga_buffer_index];
+-    if (c_RkRgaBlit(&src_info, &dst_info, NULL) < 0) {
+-       SDL_LogError(SDL_LOG_CATEGORY_VIDEO,
+-                        "Failed to rga blit\n");
++#ifdef __HDMI__
++	//check_hdmi_connect();
++    if(hdmi_status==1)
++    {
++	    fb_info = KMSDRM_FBFromBO(_this, windata->next_bo);
++	    if (!fb_info) {
++	        return 0;
++	    }
+     }
++    else
++    {
++	     if (src_info.fd) {
++	        close(src_info.fd);
++	    }
++	    src_info.fd = KMSDRM_gbm_bo_get_fd(windata->next_bo);
++	    dst_info.fd = viddata->rga_buffer_prime_fds[viddata->rga_buffer_index];
++	    if (c_RkRgaBlit(&src_info, &dst_info, NULL) < 0) {
++	       SDL_LogError(SDL_LOG_CATEGORY_VIDEO,
++	                        "Failed to rga blit\n");
++	    }
+ 
+-    rga_buffer = viddata->rga_buffers[viddata->rga_buffer_index];
+-    fb_info = KMSDRM_FBFromBO(_this, rga_buffer);
++	    rga_buffer = viddata->rga_buffers[viddata->rga_buffer_index];
++	    fb_info = KMSDRM_FBFromBO(_this, rga_buffer);
++	    if (!fb_info) {
++	        return 0;
++	    }
++	    viddata->rga_buffer_index = (viddata->rga_buffer_index + 1) % RGA_BUFFERS_MAX;    
++    }
++#else
++    fb_info = KMSDRM_FBFromBO(_this, windata->next_bo);
+     if (!fb_info) {
+         return 0;
+     }
+-    viddata->rga_buffer_index = (viddata->rga_buffer_index + 1) % RGA_BUFFERS_MAX;
+-
++#endif
+     if (!windata->curr_bo) {
+         /* On the first swap, immediately present the new front buffer. Before
+            drmModePageFlip can be used the CRTC has to be configured to use
+diff --git a/src/video/kmsdrm/SDL_kmsdrmvideo.c b/src/video/kmsdrm/SDL_kmsdrmvideo.c
+index cdaca46..49d885a 100755
+--- a/src/video/kmsdrm/SDL_kmsdrmvideo.c
++++ b/src/video/kmsdrm/SDL_kmsdrmvideo.c
+@@ -53,65 +53,28 @@ rga_info_t src_info = {0};
+ rga_info_t dst_info = {0};
+ #ifdef __HDMI__
+ int hdmi_status=0;
+-static const char *sys_class_hdmi_path = "/sys/class/drm/card0-HDMI-A-1";
+-static int
+-open_hdmi_file(const char *base, const char *node, const char *key)
+-{
+-    const size_t pathlen = strlen(base) + strlen(node) + strlen(key) + 3;
+-    char *path = (char *) alloca(pathlen);
+-    if (path == NULL) {
+-        return -1;  /* oh well. */
+-    }
+-
+-    snprintf(path, pathlen, "%s/%s/%s", base, node, key);
+-    return open(path, O_RDONLY);
+-}
+-static SDL_bool
+-read_hdmi_file(const char *base, const char *node, const char *key,
+-                char *buf, size_t buflen)
++int check_hdmi_connect()
+ {
+-    ssize_t br = 0;
+-    const int fd = open_hdmi_file(base, node, key);
+-    if (fd == -1) {
+-        return SDL_FALSE;
+-    }
+-    br = read(fd, buf, buflen-1);
+-    close(fd);
++	ssize_t br = 0;
++	char str[64];
++	const int fd =  open("/sys/devices/platform/singleadc-joypad/hdst", O_RDONLY);
++	if (fd == -1) {
++		return 0;
++	}
++	br = read(fd, str, sizeof (str)-1);
++	if ( (SDL_strcmp(str, "connected\n") == 0)) {
++		hdmi_status=1;
++	}
++	else
++	{
++		hdmi_status=0;          
++	}
++	close(fd);
+     if (br < 0) {
+-        return SDL_FALSE;
+-    }
+-    buf[br] = '\0';             /* null-terminate the string. */
+-    return SDL_TRUE;
+-}
+-int
+-check_hdmi_connect()
+-{
+-    const char *base = sys_class_hdmi_path;
+-    struct dirent *dent;
+-    DIR *dirp;
+-
+-    dirp = opendir(base);
+-    if (!dirp) {
+-        return SDL_FALSE;
+-    }
+-    while ((dent = readdir(dirp)) != NULL) {
+-        const char *name = dent->d_name;
+-        char str[64];
+-        /* some drivers don't offer this, so if it's not explicitly reported assume it's present. */
+-        if (read_hdmi_file(base, name, "status", str, sizeof (str)) && (SDL_strcmp(str, "connected\n") == 0)) {
+-            hdmi_status=1;
+-            closedir(dirp);
+-            return SDL_TRUE;
+-        }
+-        else
+-        {
+-            hdmi_status=0;          
+-        }
+-    }
+-    closedir(dirp);
+-    return SDL_FALSE;
++        return 0;
++    }	
++	return 0;
+ }
+-
+ #endif
+ static int
+ check_modestting(int devindex)
+@@ -345,36 +308,18 @@ KMSDRM_InitRotateBuffer(_THIS, int frameWidth, int frameHeight)
+         viddata->rga_buffer_prime_fds[i] = KMSDRM_gbm_bo_get_fd(viddata->rga_buffers[i]);
+     }
+     viddata->rga_buffer_index = 0;
+-    if(hdmi_status==1)
+-    {
+-        // setup rotation
+-        src_info.fd = -1;
+-        src_info.mmuFlag = 1;
+-        src_info.rotation = 0;
+-
+-        // swap width and height here because our source buffer is 480x320
+-        rga_set_rect(&src_info.rect, 0, 0, frameHeight, frameWidth, frameHeight, frameWidth, RK_FORMAT_BGRA_8888);
++    // setup rotation
++    src_info.fd = -1;
++    src_info.mmuFlag = 1;
++    src_info.rotation = HAL_TRANSFORM_ROT_270;
+ 
+-        dst_info.fd = -1;
+-        dst_info.mmuFlag = 1;
++    // swap width and height here because our source buffer is 480x320
++    rga_set_rect(&src_info.rect, 0, 0, frameHeight, frameWidth, frameHeight, frameWidth, RK_FORMAT_BGRA_8888);
+ 
+-        rga_set_rect(&dst_info.rect, 0, 0, frameHeight, frameWidth, frameHeight, frameWidth, RK_FORMAT_BGRA_8888);
+-    }
+-    else
+-    {
+-        // setup rotation
+-        src_info.fd = -1;
+-        src_info.mmuFlag = 1;
+-        src_info.rotation = HAL_TRANSFORM_ROT_270;
++    dst_info.fd = -1;
++    dst_info.mmuFlag = 1;
+ 
+-        // swap width and height here because our source buffer is 480x320
+-        rga_set_rect(&src_info.rect, 0, 0, frameHeight, frameWidth, frameHeight, frameWidth, RK_FORMAT_BGRA_8888);
+-
+-        dst_info.fd = -1;
+-        dst_info.mmuFlag = 1;
+-
+-        rga_set_rect(&dst_info.rect, 0, 0, frameWidth, frameHeight, frameWidth, frameHeight, RK_FORMAT_BGRA_8888);     
+-    }
++    rga_set_rect(&dst_info.rect, 0, 0, frameWidth, frameHeight, frameWidth, frameHeight, RK_FORMAT_BGRA_8888);     
+ }
+ 
+ KMSDRM_FBInfo *
+@@ -570,7 +515,9 @@ KMSDRM_VideoInit(_THIS)
+     drmModeEncoder *encoder = NULL;
+     char devname[32];
+     SDL_VideoDisplay display = {0};
+-
++    #ifdef __HDMI__
++    //check_hdmi_connect();
++    #endif
+     dispdata = (SDL_DisplayData *) SDL_calloc(1, sizeof(SDL_DisplayData));
+ 
+     if (!dispdata) {
+@@ -941,7 +888,9 @@ KMSDRM_CreateWindow(_THIS, SDL_Window * window)
+     SDL_VideoData *viddata = (SDL_VideoData *)_this->driverdata;
+     SDL_WindowData *windata;
+     SDL_DisplayData *data;
+-
++    #ifdef __HDMI__
++    //check_hdmi_connect();
++    #endif
+ #if SDL_VIDEO_OPENGL_EGL
+     if (!_this->egl_data) {
+         if (SDL_GL_LoadLibrary(NULL) < 0) {
+@@ -994,10 +943,17 @@ KMSDRM_CreateWindow(_THIS, SDL_Window * window)
+     /* Focus on the newly created window */
+     SDL_SetMouseFocus(window);
+     SDL_SetKeyboardFocus(window);
+-
+-    data = (SDL_DisplayData *) SDL_GetDisplayForWindow(window)->driverdata;
+-    KMSDRM_InitRotateBuffer(_this, data->mode.hdisplay, data->mode.vdisplay);
+-
++#ifdef __HDMI__
++    if(hdmi_status==1)
++    {
++    }
++    else
++    {
++    	data = (SDL_DisplayData *) SDL_GetDisplayForWindow(window)->driverdata;
++    	KMSDRM_InitRotateBuffer(_this, data->mode.hdisplay, data->mode.vdisplay);   
++    }
++#else
++#endif
+     return 0;
+ 
+ error:
+@@ -1035,14 +991,22 @@ KMSDRM_DestroyWindow(_THIS, SDL_Window * window)
+     window->driverdata = NULL;
+ 
+     SDL_free(windata);
+-
+-    for (int i = 0; i < RGA_BUFFERS_MAX; ++i) {
+-        close(viddata->rga_buffer_prime_fds[i]);
++#ifdef __HDMI__
++    if(hdmi_status==1)
++    {
+     }
+-    if (src_info.fd) {
+-        close(src_info.fd);
++    else
++    {
++	    for (int i = 0; i < RGA_BUFFERS_MAX; ++i) {
++	        close(viddata->rga_buffer_prime_fds[i]);
++	    }
++	    if (src_info.fd) {
++	        close(src_info.fd);
++	    }
++	    c_RkRgaDeInit();  
+     }
+-    c_RkRgaDeInit();
++#else
++#endif
+ }
+ 
+ int

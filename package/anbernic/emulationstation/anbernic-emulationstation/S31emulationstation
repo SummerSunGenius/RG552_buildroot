@@ -1,0 +1,51 @@
+#!/bin/sh
+
+# intel-iris-driver
+if grep -qE "^[ ]*intel-i965-driver[ ]*=[ ]*true[ ]*$" /boot/anbernic-boot.conf
+then
+	# Force use i965 driver through global environment variable
+	export MESA_LOADER_DRIVER_OVERRIDE=i965
+fi
+
+case "$1" in
+	start)
+		enabled="`anbernic-settings -command load -key system.es.atstartup`"
+		secured="`anbernic-settings -command load -key system.es.maxresolution`"
+		if [ "$enabled" != "0" ];then
+		        if test "${secured}" = 0 -o -z "${secured}"
+			then
+			  anbernic-resolution minTomaxResolution-secure
+			else
+			  anbernic-resolution minTomaxResolution
+			fi
+			settings_lang="`anbernic-settings -command load -key system.language`"
+			cd /userdata # es need a PWD
+			HOME=/userdata/system LANG="${settings_lang}.UTF-8" %ANBERNIC_EMULATIONSTATION_PREFIX% %ANBERNIC_EMULATIONSTATION_CMD% %ANBERNIC_EMULATIONSTATION_ARGS% %ANBERNIC_EMULATIONSTATION_POSTFIX%
+		fi
+		;;
+
+	stop)
+		killall emulationstation
+		if [[ $? -eq 0 ]]; then
+			sleep 20 &
+			watchdog=$!
+			while [[ -n $(pidof emulationstation) ]]; do
+				sleep 0.25
+				$(kill -0 $watchdog) || exit
+			done
+			kill -9 $watchdog
+		fi
+		;;
+
+	restart|reload)
+		"$0" stop
+		"$0" start
+		;;
+	
+	*)
+		echo "Usage: $0 {start|stop|restart}"
+		exit 1
+esac
+
+exit $?
+

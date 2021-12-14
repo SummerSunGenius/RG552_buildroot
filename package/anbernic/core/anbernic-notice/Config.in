@@ -1,0 +1,4 @@
+config BR2_PACKAGE_ANBERNIC_NOTICE
+    bool "anbernic-notice"
+    help
+      Anbernic pdf notice

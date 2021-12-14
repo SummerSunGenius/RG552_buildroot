@@ -1,0 +1,6 @@
+config BR2_PACKAGE_ANBERNIC_BEZEL
+        bool "anbernic bezel"
+        help
+          Anbernic bezel
+
+	  https://github.com/batocera-linux/batocera-bezel

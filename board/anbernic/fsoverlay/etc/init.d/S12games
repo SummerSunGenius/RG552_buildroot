@@ -1,0 +1,8 @@
+#!/bin/bash
+
+if test $1 = start
+then
+if [[ -b "/dev/mmcblk1p1" ]]; then
+mount /dev/mmcblk1p1 /userdata/roms
+fi
+fi

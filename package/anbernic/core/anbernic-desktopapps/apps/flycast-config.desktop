@@ -1,0 +1,8 @@
+[Desktop Entry]
+Version=1.0
+Icon=/usr/share/icons/anbernic/flycast.png
+Exec=/usr/bin/anbernic-config-flycast
+Terminal=false
+Type=Application
+Categories=Game;anbernic.linux;
+Name=flycast-config

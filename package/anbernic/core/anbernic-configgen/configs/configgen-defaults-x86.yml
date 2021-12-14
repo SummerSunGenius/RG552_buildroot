@@ -1,0 +1,15 @@
+n64:
+  emulator: mupen64plus
+  core: glide64mk2
+saturn:
+  emulator: libretro
+  core:     beetle-saturn
+amigacdtv:
+  emulator: fsuae
+  core:     CDTV
+pcengine:
+  emulator: libretro
+  core:     pce
+pcenginecd:
+  emulator: libretro
+  core:     pce

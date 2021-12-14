@@ -1,0 +1,6 @@
+config BR2_PACKAGE_ANBERNIC_IMAGE
+	bool "anbernic-image"
+	select BR2_PACKAGE_HOST_GENIMAGE
+	select BR2_PACKAGE_HOST_GENEXT2FS
+	help
+	  Utilities needed to build Anbernic.linux images

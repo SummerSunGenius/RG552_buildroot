@@ -1,0 +1,330 @@
+diff --git a/menu/drivers/rgui.c b/menu/drivers/rgui.c
+index 1eda34e245..59cb22717c 100644
+--- a/menu/drivers/rgui.c
++++ b/menu/drivers/rgui.c
+@@ -1023,6 +1023,10 @@ typedef struct
+    frame_buf_t frame_buf;
+    frame_buf_t background_buf;
+    frame_buf_t upscale_buf;
++#ifdef __HDMI__
++   frame_buf_t rotate_buf;
++   frame_buf_t rotate1_buf;
++#endif
+ 
+    thumbnail_t fs_thumbnail;
+    thumbnail_t mini_thumbnail;
+@@ -5495,7 +5499,18 @@ static bool rgui_set_aspect_ratio(rgui_t *rgui,
+    /* If window height is less than RGUI default
+     * height of 240, allow the frame buffer to
+     * 'shrink' to a minimum height of 192 */
+-   rgui->frame_buf.height = 240;
++	#ifdef __HDMI__
++	if(hdmi_status==1)
++	{
++		rgui->frame_buf.height = 240;
++	}
++	else
++	{
++		rgui->frame_buf.height = 320;
++	}
++	#else
++		rgui->frame_buf.height = 240;
++	#endif 
+    video_driver_get_viewport_info(&vp);
+    if (vp.full_height < rgui->frame_buf.height)
+       rgui->frame_buf.height = (vp.full_height > RGUI_MIN_FB_HEIGHT) ?
+@@ -5594,6 +5609,27 @@ static bool rgui_set_aspect_ratio(rgui_t *rgui,
+          }
+          break;
+       default:
++	  #ifdef __HDMI__
++	  if(hdmi_status==1)
++	  {
++	           /* 4:3 */
++         if (rgui->frame_buf.height == 240)
++            rgui->frame_buf.width = 320;
++         else
++            rgui->frame_buf.width = RGUI_ROUND_FB_WIDTH(
++                  ( 4.0f / 3.0f)  * (float)rgui->frame_buf.height);
++         base_term_width = rgui->frame_buf.width;
++	  }
++	  else
++	  {
++	           /* 4:3 */
++         if (rgui->frame_buf.height == 320)
++            rgui->frame_buf.width = 320;
++         else
++            rgui->frame_buf.width = 320;
++         base_term_width = 320;
++	  }
++	  #else
+          /* 4:3 */
+          if (rgui->frame_buf.height == 240)
+             rgui->frame_buf.width = 320;
+@@ -5601,6 +5637,7 @@ static bool rgui_set_aspect_ratio(rgui_t *rgui,
+             rgui->frame_buf.width = RGUI_ROUND_FB_WIDTH(
+                   ( 4.0f / 3.0f)  * (float)rgui->frame_buf.height);
+          base_term_width = rgui->frame_buf.width;
++	  #endif
+          break;
+    }
+    
+@@ -5680,21 +5717,65 @@ static bool rgui_set_aspect_ratio(rgui_t *rgui,
+             break;
+ 
+          default:
+-            /* 4:3 */
+-            rgui->frame_buf.height = (unsigned)(
+-                  ( 3.0f /  4.0f) * (float)rgui->frame_buf.width);
+-            base_term_width = rgui->frame_buf.width;
++			#ifdef __HDMI__
++			if(hdmi_status==1)
++			{
++	            /* 4:3 */
++	            rgui->frame_buf.height = (unsigned)(
++	                  ( 3.0f /  4.0f) * (float)rgui->frame_buf.width);
++	            base_term_width = rgui->frame_buf.width;
++			}
++			else
++			{
++	            /* 4:3 */
++	            rgui->frame_buf.height = 320;
++	            base_term_width = 320;				
++			}
++			#else
++	            /* 4:3 */
++	            rgui->frame_buf.height = (unsigned)(
++	                  ( 3.0f /  4.0f) * (float)rgui->frame_buf.width);
++	            base_term_width = rgui->frame_buf.width;
++			#endif 
+             break;
+       }
+    }
+ #endif
++	#ifdef __HDMI__
++	if(hdmi_status==1)
++	{
++	   /* Allocate frame buffer */
++	   rgui->frame_buf.data = (uint16_t*)calloc(
++	         rgui->frame_buf.width * rgui->frame_buf.height, sizeof(uint16_t));
+    
+-   /* Allocate frame buffer */
+-   rgui->frame_buf.data = (uint16_t*)calloc(
+-         rgui->frame_buf.width * rgui->frame_buf.height, sizeof(uint16_t));
++	   if (!rgui->frame_buf.data)
++	      return false;
++	}
++	else
++	{
++	   /* Allocate frame buffer */
++	   rgui->frame_buf.data = (uint16_t*)calloc(
++	         rgui->frame_buf.width * rgui->frame_buf.height * 2, sizeof(uint16_t));
+    
+-   if (!rgui->frame_buf.data)
+-      return false;
++	   if (!rgui->frame_buf.data)
++	      return false;
++	   /* Allocate frame buffer */
++	   rgui->rotate_buf.data = (uint16_t*)calloc(
++	         rgui->frame_buf.width * rgui->frame_buf.height* 2, sizeof(uint16_t));
++	    rgui->rotate1_buf.data = (uint16_t*)calloc(
++	         rgui->frame_buf.width * rgui->frame_buf.height * 2, sizeof(uint16_t));
++
++	   if (!rgui->rotate_buf.data)
++	      return false;
++	}
++	#else
++	   /* Allocate frame buffer */
++	   rgui->frame_buf.data = (uint16_t*)calloc(
++	         rgui->frame_buf.width * rgui->frame_buf.height, sizeof(uint16_t));
++   
++	   if (!rgui->frame_buf.data)
++	      return false;
++	#endif   
+    
+    /* Configure 'menu display' settings */
+    gfx_display_set_width(rgui->frame_buf.width);
+@@ -5940,11 +6021,86 @@ static void rgui_free(void *data)
+    rgui_framebuffer_free(&rgui->frame_buf);
+    rgui_framebuffer_free(&rgui->background_buf);
+    rgui_framebuffer_free(&rgui->upscale_buf);
++	#ifdef __HDMI__
++	if(hdmi_status==1)
++	{
++	}
++	else
++	{
++	   rgui_framebuffer_free(&rgui->rotate_buf);
++	   rgui_framebuffer_free(&rgui->rotate1_buf);
++	}
++	#else
++	#endif   
+ 
+    rgui_thumbnail_free(&rgui->fs_thumbnail);
+    rgui_thumbnail_free(&rgui->mini_thumbnail);
+    rgui_thumbnail_free(&rgui->mini_left_thumbnail);
+ }
++#ifdef __HDMI__
++void rotate_90_16bpp_manual(uint16_t* src_p, uint16_t* dst_p, uint32_t src_w, uint32_t src_h, uint32_t dst_w, uint32_t dst_h, uint32_t src_pitch, uint32_t dst_pitch) 
++{
++    int row, col;
++    int src_ipr, dst_ipr;
++    uint16_t* srcBuf;
++    uint16_t* dstBuf;
++
++    src_ipr = src_pitch / 2;
++    dst_ipr = dst_pitch / 2;
++
++    for (row = 0; row < src_h; ++row)
++    {
++        srcBuf = (uint16_t*)(src_p) + (row * src_ipr);
++        dstBuf = (uint16_t*)(dst_p) + row + ((dst_h - 1) * dst_ipr);
++        for (col = 0; col < src_w; ++col)
++        {
++            *dstBuf = *srcBuf;
++            ++srcBuf;
++            dstBuf -= dst_ipr;
++        } 
++    }
++}
++
++uint16_t stretch_manual(	uint16_t * src_p,uint16_t * dst_p,uint32_t src_w, uint32_t src_h){
++	
++	uint16_t n,m,d;
++	uint16_t * value44;
++	uint16_t * value43;
++
++		if(src_w>src_h){
++				d=(src_w-src_h)*src_h/src_w;
++				for(n=0;n<src_w;n++){
++				for(m=0;m<src_w+d;m++){
++					if(m<d){
++					value43=dst_p+(n*src_w + m);					
++					*value43=0x0000;							
++					}else{					
++						value43=dst_p+(((n)*3/4)*src_w + ((m-d)*3/4)+d);
++						*value43=*(src_p+((n)*src_w+(m))-d);
++					}
++					
++				}		
++			}
++		}else{
++			d=(src_h-src_w)*src_w/src_h;		
++				for(n=0;n<src_h;n++){
++				for(m=0;m<src_h+d;m++){
++					if(m<d){
++					value43=dst_p+(n*src_w + m);					
++					*value43=0x0000;							
++					}else{
++					
++						value43=dst_p+(((n)*3/4)*src_h + ((m-d)*3/4)+d);
++						*value43=*(src_p+((n)*src_h+(m))-d);
++					}
++					
++				}		
++			}
++		}
++	return 0;
++}
++#endif
++
+ 
+ static void rgui_set_texture(void *data)
+ {
+@@ -5967,10 +6123,33 @@ static void rgui_set_texture(void *data)
+ 
+    p_disp->framebuf_dirty = false;
+ 
++	#ifdef __HDMI__
++	if(hdmi_status==1)
++	{
++	}
++	else
++	{
++   		rotate_90_16bpp_manual(rgui->frame_buf.data,rgui->rotate_buf.data,rgui->frame_buf.width,rgui->frame_buf.height,rgui->frame_buf.height,rgui->frame_buf.width,640,640);
++	}
++	#else
++	#endif   
+    if (internal_upscale_level == RGUI_UPSCALE_NONE)
+    {
+-      video_driver_set_texture_frame(rgui->frame_buf.data,
++	#ifdef __HDMI__
++	if(hdmi_status==1)
++	{
++	      video_driver_set_texture_frame(rgui->frame_buf.data,
++         false, fb_width, fb_height, 1.0f);
++	}
++	else
++	{
++      video_driver_set_texture_frame(rgui->rotate_buf.data,
++         false, fb_width, fb_height, 1.0f);
++	}
++	#else
++	      video_driver_set_texture_frame(rgui->frame_buf.data,
+          false, fb_width, fb_height, 1.0f);
++	#endif   
+    }
+    else
+    {
+diff --git a/retroarch.c b/retroarch.c
+index 04d8e400dc..36def740df 100644
+--- a/retroarch.c
++++ b/retroarch.c
+@@ -13184,7 +13184,28 @@ static void retroarch_validate_cpu_features(void)
+       FAIL_CPU("AVX");
+ #endif
+ }
+-
++#ifdef __HDMI__
++int hdmi_status=0;
++int check_hdmi_connect()
++{
++	ssize_t br = 0;
++	char str[20];
++	const int fd =  open("/sys/devices/platform/singleadc-joypad/hdst", O_RDONLY);
++	if (fd == -1) {
++		return -1;
++	}
++	br = read(fd, str, 4);
++	if ( (strcmp(str, "conn") == 0)) {
++		hdmi_status=1;
++	}
++	else
++	{
++		hdmi_status=0;          
++	}
++	close(fd);	
++	return 0;
++}
++#endif
+ /**
+  * retroarch_main_init:
+  * @argc                 : Count of (commandline) arguments.
+@@ -13222,7 +13243,9 @@ bool retroarch_main_init(int argc, char *argv[])
+    input_st->osk_idx            = OSK_LOWERCASE_LATIN;
+    video_st->active             = true;
+    audio_state_get_ptr()->active= true;
+-
++#ifdef __HDMI__
++   check_hdmi_connect();
++#endif
+    if (setjmp(p_rarch->error_sjlj_context) > 0)
+    {
+       RARCH_ERR("%s: \"%s\"\n",
+diff --git a/retroarch.h b/retroarch.h
+index b1388e5cec..fb7fb0f29b 100644
+--- a/retroarch.h
++++ b/retroarch.h
+@@ -71,7 +71,11 @@ RETRO_BEGIN_DECLS
+                                             * 2 - Normal
+                                             * 3 - Late
+                                             */
+-
++#define __HDMI__
++#ifdef __HDMI__
++extern int hdmi_status;
++extern int check_hdmi_connect();
++#endif
+ bool retroarch_ctl(enum rarch_ctl_state state, void *data);
+ 
+ int retroarch_get_capabilities(enum rarch_capabilities type,

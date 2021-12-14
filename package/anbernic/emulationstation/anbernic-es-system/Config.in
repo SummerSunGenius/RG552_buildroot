@@ -1,0 +1,5 @@
+config BR2_PACKAGE_ANBERNIC_ES_SYSTEM
+        bool "anbernic-es-system"
+	select BR2_PACKAGE_ANBERNIC_CONFIGGEN
+        help
+          Generates the es_system.cfg file and the roms folder

@@ -1,0 +1,35 @@
+--- a/frontend/libretro.c
++++ b/frontend/libretro.c
+@@ -486,14 +486,26 @@ void pl_timing_prepare(int is_pal)
+ 
+ void plat_trigger_vibrate(int pad, int low, int high)
+ {
+-   if (!rumble_cb)
++    if (!rumble_cb)
+       return;
+ 
+-   if (in_enable_vibration)
+-   {
+-      rumble_cb(pad, RETRO_RUMBLE_STRONG, high << 8);
+-      rumble_cb(pad, RETRO_RUMBLE_WEAK, low ? 0xffff : 0x0);
+-   }
++
++    FILE *fp;
++    if (in_enable_vibration)
++    {
++      if(high <= 0x80)
++      {
++        fp = fopen("/sys/class/pwm/pwmchip3/pwm0/duty_cycle", "w");
++        fprintf(fp, "1000000");
++        fclose(fp);
++      }
++      else
++      {
++        fp = fopen("/sys/class/pwm/pwmchip3/pwm0/duty_cycle", "w");
++        fprintf(fp, "10");
++        fclose(fp);
++      }
++    }
+ }
+ 
+ void pl_update_gun(int *xn, int *yn, int *xres, int *yres, int *in)

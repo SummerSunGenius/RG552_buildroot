@@ -1,0 +1,6 @@
+config BR2_PACKAGE_ANBERNIC_SYSLINUX_EFI
+    bool "anbernic-syslinux-efi"
+    help
+      Precompiled syslinux EFI binaries from Archlinux
+
+      https://www.archlinux.org/packages/core/x86_64/syslinux/

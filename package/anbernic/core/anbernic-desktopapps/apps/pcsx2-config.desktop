@@ -1,0 +1,8 @@
+[Desktop Entry]
+Version=1.0
+Icon=/usr/share/icons/anbernic/pcsx2.png
+Exec=/usr/bin/anbernic-config-pcsx2
+Terminal=false
+Type=Application
+Categories=Game;anbernic.linux;
+Name=pcsx2-config

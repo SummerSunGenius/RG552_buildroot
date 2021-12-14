@@ -1,0 +1,8 @@
+[Desktop Entry]
+Version=1.0
+Icon=/usr/share/icons/anbernic/ppsspp.png
+Exec=/usr/bin/anbernic-config-ppsspp
+Terminal=false
+Type=Application
+Categories=Game;anbernic.linux;
+Name=ppsspp-emu-config

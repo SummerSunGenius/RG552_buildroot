@@ -1,0 +1,26 @@
+default:
+  options:
+    video_threaded: true
+    audio_driver: pulse
+psp:
+  options:
+    frameskip: true
+    frameskiptype: 2
+    internalresolution: 1
+    InflightFrames: 1
+    TextureBackoffCache: true
+amiga500:
+  emulator: amiberry
+  core:     A500
+amiga1200:
+  emulator: amiberry
+  core:     A1200
+amigacd32:
+  emulator: amiberry
+  core:     CD32
+n64:
+  emulator: libretro
+  core:     parallel_n64
+dreamcast:
+  options:
+    retroarch.audio_driver: alsathread

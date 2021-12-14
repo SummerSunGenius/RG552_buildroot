@@ -1,0 +1,10 @@
+config BR2_PACKAGE_ANBERNIC_SCRIPTS
+	bool "anbernic-scripts"
+
+	select BR2_PACKAGE_PCIUTILS
+	select BR2_PACKAGE_PYTHON2_GOBJECT
+	select BR2_PACKAGE_PYTHON
+	select BR2_PACKAGE_JQ # for vulkan parsing
+
+	help
+	  Anbernic scripts

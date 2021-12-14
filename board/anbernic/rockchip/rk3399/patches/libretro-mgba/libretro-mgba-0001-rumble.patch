@@ -1,0 +1,22 @@
+--- a/src/platform/libretro/libretro.c
++++ b/src/platform/libretro/libretro.c
+@@ -341,12 +341,15 @@ void retro_run(void) {
+ 	videoCallback(outputBuffer, width, height, BYTES_PER_PIXEL * 256);
+ 
+ 	if (rumbleCallback) {
++        FILE *fp;
+ 		if (rumbleUp) {
+-			rumbleCallback(0, RETRO_RUMBLE_STRONG, rumbleUp * 0xFFFF / (rumbleUp + rumbleDown));
+-			rumbleCallback(0, RETRO_RUMBLE_WEAK, rumbleUp * 0xFFFF / (rumbleUp + rumbleDown));
++			fp = fopen("/sys/class/pwm/pwmchip3/pwm0/duty_cycle", "w");
++			fprintf(fp, "10");
++			fclose(fp);
+ 		} else {
+-			rumbleCallback(0, RETRO_RUMBLE_STRONG, 0);
+-			rumbleCallback(0, RETRO_RUMBLE_WEAK, 0);
++			fp = fopen("/sys/class/pwm/pwmchip3/pwm0/duty_cycle", "w");
++			fprintf(fp, "1000000");
++			fclose(fp);
+ 		}
+ 		rumbleUp = 0;
+ 		rumbleDown = 0;

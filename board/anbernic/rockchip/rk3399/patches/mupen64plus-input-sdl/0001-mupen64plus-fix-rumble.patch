@@ -1,0 +1,62 @@
+--- a/src/plugin.c
++++ a/src/plugin.c
+@@ -111,11 +111,9 @@ static int romopen = 0;         // is a
+ 
+ static unsigned char myKeyState[SDL_NUM_SCANCODES];
+ 
+-#if __linux__ && !SDL_VERSION_ATLEAST(2,0,0)
+ static struct ff_effect ffeffect[4];
+ static struct ff_effect ffstrong[4];
+ static struct ff_effect ffweak[4];
+-#endif //__linux__
+ 
+ /* Global functions */
+ void DebugMessage(int level, const char *message, ...)
+@@ -413,24 +411,21 @@ EXPORT void CALL ControllerCommand(int C
+                 unsigned int dwAddress = (Command[3] << 8) + (Command[4] & 0xE0);
+               if (dwAddress == PAK_IO_RUMBLE && *Data)
+                     DebugMessage(M64MSG_VERBOSE, "Triggering rumble pack.");
+-#if SDL_VERSION_ATLEAST(2,0,0)
+-                if(dwAddress == PAK_IO_RUMBLE && controller[Control].event_joystick) {
+-                    if (*Data) {
+-                        SDL_HapticRumblePlay(controller[Control].event_joystick, 1, SDL_HAPTIC_INFINITY);
+-                    } else {
+-                        SDL_HapticRumbleStop(controller[Control].event_joystick);
+-                    }
+-                }
+-#elif __linux__
++
+                 struct input_event play;
+                 if( dwAddress == PAK_IO_RUMBLE && controller[Control].event_joystick != 0)
+                 {
++                    FILE *fp;
+                     if( *Data )
+                     {
+                         play.type = EV_FF;
+                         play.code = ffeffect[Control].id;
+                         play.value = 1;
+ 
++                        fp = fopen("/sys/class/pwm/pwmchip3/pwm0/duty_cycle", "w");
++                        fprintf(fp, "10");
++                        fclose(fp);
++
+                         if (write(controller[Control].event_joystick, (const void*) &play, sizeof(play)) == -1)
+                             perror("Error starting rumble effect");
+ 
+@@ -441,11 +436,15 @@ EXPORT void CALL ControllerCommand(int C
+                         play.code = ffeffect[Control].id;
+                         play.value = 0;
+ 
++                        fp = fopen("/sys/class/pwm/pwmchip3/pwm0/duty_cycle", "w");
++                        fprintf(fp, "1000000");
++                        fclose(fp);
++
+                         if (write(controller[Control].event_joystick, (const void*) &play, sizeof(play)) == -1)
+                             perror("Error stopping rumble effect");
+                     }
+                 }
+-#endif //__linux__
++
+                 Data[32] = DataCRC( Data, 32 );
+             }
+             break;

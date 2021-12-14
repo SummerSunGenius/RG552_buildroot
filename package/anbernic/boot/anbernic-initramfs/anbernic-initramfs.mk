@@ -1,0 +1,64 @@
+################################################################################
+#
+# busybox_initramfs
+#
+################################################################################
+
+ANBERNIC_INITRAMFS_VERSION = 1.24.2
+ANBERNIC_INITRAMFS_SITE = http://www.busybox.net/downloads
+ANBERNIC_INITRAMFS_SOURCE = busybox-$(ANBERNIC_INITRAMFS_VERSION).tar.bz2
+ANBERNIC_INITRAMFS_LICENSE = GPLv2
+ANBERNIC_INITRAMFS_LICENSE_FILES = LICENSE
+
+ANBERNIC_INITRAMFS_CFLAGS = $(TARGET_CFLAGS)
+ANBERNIC_INITRAMFS_LDFLAGS = $(TARGET_LDFLAGS)
+
+ANBERNIC_INITRAMFS_KCONFIG_FILE = "$(BR2_EXTERNAL_ANBERNIC_PATH)/package/anbernic/boot/anbernic-initramfs/busybox.config"
+
+INITRAMFS_DIR=$(BINARIES_DIR)/initramfs
+
+# Allows the build system to tweak CFLAGS
+ANBERNIC_INITRAMFS_MAKE_ENV = \
+	$(TARGET_MAKE_ENV) \
+	CFLAGS="$(ANBERNIC_INITRAMFS_CFLAGS)"
+ANBERNIC_INITRAMFS_MAKE_OPTS = \
+	CC="$(TARGET_CC)" \
+	ARCH=$(KERNEL_ARCH) \
+	PREFIX="$(INITRAMFS_DIR)" \
+	EXTRA_LDFLAGS="$(ANBERNIC_INITRAMFS_LDFLAGS)" \
+	CROSS_COMPILE="$(TARGET_CROSS)" \
+	CONFIG_PREFIX="$(INITRAMFS_DIR)" \
+	SKIP_STRIP=n
+
+ANBERNIC_INITRAMFS_KCONFIG_OPTS = $(ANBERNIC_INITRAMFS_MAKE_OPTS)
+
+define ANBERNIC_INITRAMFS_BUILD_CMDS
+	$(ANBERNIC_INITRAMFS_MAKE_ENV) $(MAKE) $(ANBERNIC_INITRAMFS_MAKE_OPTS) -C $(@D)
+endef
+
+ifeq ($(BR2_PACKAGE_UBOOT_ODROID_C2)$(BR2_PACKAGE_UBOOT_ODROID_C4)$(BR2_PACKAGE_UBOOT_ODROID_N2)$(BR2_PACKAGE_ANBERNIC_TARGET_S905)$(BR2_PACKAGE_UBOOT_ODROID_GOA),y)
+
+ifeq ($(BR2_aarch64)$(BR2_TOOLCHAIN_OPTIONAL_LINARO_AARCH64),y)
+ANBERNIC_INITRAMFS_INITRDA=arm64
+else
+ANBERNIC_INITRAMFS_INITRDA=arm
+endif
+
+define ANBERNIC_INITRAMFS_INSTALL_TARGET_CMDS
+	mkdir -p $(INITRAMFS_DIR)
+	cp $(BR2_EXTERNAL_ANBERNIC_PATH)/package/anbernic/boot/anbernic-initramfs/init $(INITRAMFS_DIR)/init
+	$(ANBERNIC_INITRAMFS_MAKE_ENV) $(MAKE) $(ANBERNIC_INITRAMFS_MAKE_OPTS) -C $(@D) install
+	(cd $(INITRAMFS_DIR) && find . | cpio -H newc -o > $(BINARIES_DIR)/initrd)
+	(cd $(BINARIES_DIR) && mkimage -A $(ANBERNIC_INITRAMFS_INITRDA) -O linux -T ramdisk -C none -a 0 -e 0 -n initrd -d ./initrd ./uInitrd)
+endef
+else
+define ANBERNIC_INITRAMFS_INSTALL_TARGET_CMDS
+	mkdir -p $(INITRAMFS_DIR)
+	cp $(BR2_EXTERNAL_ANBERNIC_PATH)/package/anbernic/boot/anbernic-initramfs/init $(INITRAMFS_DIR)/init
+	$(ANBERNIC_INITRAMFS_MAKE_ENV) $(MAKE) $(ANBERNIC_INITRAMFS_MAKE_OPTS) -C $(@D) install
+	(cd $(INITRAMFS_DIR) && find . | cpio -H newc -o | gzip -9 > $(BINARIES_DIR)/initrd.gz)
+endef
+endif
+
+
+$(eval $(kconfig-package))

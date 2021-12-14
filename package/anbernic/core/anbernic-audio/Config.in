@@ -1,0 +1,9 @@
+config BR2_PACKAGE_ANBERNIC_AUDIO
+	bool "anbernic-audio"
+	select BR2_PACKAGE_BLUEZ_ALSA
+	select BR2_PACKAGE_ALSA_UTILS
+	select BR2_PACKAGE_ALSA_UTILS_AMIXER
+	select BR2_PACKAGE_ALSA_UTILS_APLAY
+	select BR2_PACKAGE_ALSA_PLUGINS
+	help
+	  Audio support and scripts for anbernic.linux
